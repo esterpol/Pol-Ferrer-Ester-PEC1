@@ -7,7 +7,7 @@ library(ggplot2, quietly = TRUE)
 library(tidyr, quietly = TRUE)
 
 # Cargamos el dataset
-dataset_path <- "/Users/esterpolferrer/Desktop/master/analisi d dades omiques/PAC1/TIO2+PTYR-human-MSS+MSIvsPD.XLSX" 
+dataset_path <- "TIO2+PTYR-human-MSS+MSIvsPD.XLSX" 
 data <- read_excel(dataset_path)
 
 # Examinamos el dataset
