@@ -1,0 +1,261 @@
+---
+title: "PAC 1 Análisis de datos ómicos"
+output:
+  pdf_document:
+    toc: true 
+date: "2024-11-01"
+author: Ester Pol Ferrer
+---
+
+
+\newpage 
+
+# Abstract
+
+Este informe presenta un análisis de un conjunto de datos de fosfopéptidos obtenidos del repositorio metaboData. Los datos se organizan en un contenedor SummarizedExperiment que incluye tanto las abundancias como los metadatos. Se realiza una exploración exhaustiva mediante visualización, análisis de componentes principales (PCA) y pruebas estadísticas para identificar diferencias significativas entre grupos de muestras tumorales (MSS y PD).
+
+Los resultados sugieren diferencias en los perfiles de fosforilación entre los grupos, lo cual podría indicar distintas características biológicas. Finalmente, se crea un repositorio en GitHub que incluye el código y los datos en formato .Rda para facilitar la reproducibilidad del estudio.
+
+# Objetivos del estudio
+
+El objetivo principal es identificar diferencias en la fosforilación de proteínas entre los dos tipos de tumores (MSS y PD). La fosforilación es un proceso mediante el cual se añade un grupo fosfato a una proteína, lo cual puede cambiar su función. Estas modificaciones son clave en muchos procesos celulares, y diferencias en fosforilación pueden estar relacionadas con cómo crecen los tumores, cómo responden a ciertos tratamientos o su agresividad. Específicamente, se busca:
+
+- Buscar patrones de fosforilación específicos que sean distintos entre los grupos MSS y PD. Esto puede proporcionar pistas sobre diferencias en las vías biológicas que están activas en cada tipo de tumor.
+- Visualizar estas diferencias usando gráficos como el boxplot y el PCA, para observar si los fosfopéptidos (las proteínas modificadas con fosfato) permiten distinguir entre los tumores MSS y PD.
+
+Si se encuentran fosfopéptidos con niveles de abundancia significativamente distintos entre MSS y PD, esto podría ayudar a identificar potenciales biomarcadores o incluso nuevos objetivos para tratamiento. Los biomarcadores son características que pueden indicar la presencia de una enfermedad o su tipo, y son muy útiles en medicina para hacer diagnósticos o planificar tratamientos.
+
+# Materiales y métodos
+
+## Origen y tipo de datos
+
+El dataset utilizado en este estudio se obtiene de la carpeta "2018-Phosphoproteomics" en metaboData, y contiene abundancias normalizadas de señales de fosfopéptidos. Este conjunto de datos se utiliza para diferenciar entre subtipos tumorales (MSS y PD) en modelos de PDX humanos.
+
+## Herramientas informáticas y bioinformáticas utilizadas:
+
+El análisis se realiza en R, empleando paquetes específicos de Bioconductor como readxl para la carga de datos, SummarizedExperiment para organizar el contenedor de datos, y ggplot2 para la visualización.
+
+## Métodos utilizados:
+
+### Preparación de los datos
+
+En primer lugar, se cargan las abundancias de fosfopéptidos y se organizan en un objeto SummarizedExperiment que permite integrar datos y metadatos en un único contenedor. Posteriormente, se lleva a cabo un análisis exploratorio utilizando gráficos de caja para observar las distribuciones de abundancias y un análisis de componentes principales (PCA) para evaluar posibles agrupamientos.
+
+### Análisis
+
+1. El primer paso de nuestro análisis va a ser cargar el dataset y preprocesarlo:
+
+Instalamos y cargamos el paquete "readxl":
+```{r}
+#install.packages("readxl")
+library(readxl, quietly = TRUE)
+```
+
+Cargamos el archivo en R:
+```{r}
+# Cargamos el dataset
+dataset_path <- "/Users/esterpolferrer/Desktop/master/analisi d dades omiques/PAC1/TIO2+PTYR-human-MSS+MSIvsPD.XLSX" 
+data <- read_excel(dataset_path)
+```
+
+Examinamos el dataset (filas y columnas):
+```{r}
+# Examinamos las primeras filas y nombres de columna
+head(data)
+colnames(data)
+```
+Estructura del Dataset:
+Columna SequenceModifications: Contiene los identificadores de los fosfopéptidos, que nos permitirá saber a qué fosfopéptido pertenece cada fila.
+Columnas M1_1_MSS, M5_2_MSS, etc.: Estas son las columnas de muestras que contienen las abundancias de los fosfopéptidos. Son las que vamos a analizar para ver diferencias entre los dos grupos (MSS y PD).
+Otras Columnas (Accession, Description, Score, CLASS, PHOSPHO): No son necesarias para el análisis de abundancias, así que las omitiremos en los pasos siguientes.
+
+2. El segundo paso va a ser seleccionar las columnas relevantes y preparar el dataset
+
+De la descripción sabemos que hay dos grupos (MSS y PD) y seis muestras con dos réplicas técnicas cada una. Creamos un dataframe simplificado con las abundancias de fosfopéptidos y las etiquetas de los grupos (nos quedaremos solo con SequenceModifications y las columnas de muestras).
+
+Filtramos la columna con las abundancias y creamos una estructura de datos adecuada:
+```{r}
+# Seleccionamos la columna relevante y ajusta el dataframe
+#install.packages("dplyr")
+library(dplyr, quietly = TRUE)
+
+data_abundances <- data %>% select(SequenceModifications, starts_with("M"), starts_with("T"))
+head(data_abundances)
+colnames(data_abundances)
+``` 
+data_abundances tendrá la columna SequenceModifications junto con las columnas de abundancias de cada muestra.
+
+Añadimos metadatos de grupos.
+Definimos los grupos MSS y PD para cada muestra (3 de cada grupo, con dos réplicas). Creamos un dataframe de metadatos con esta información:
+```{r}
+library(S4Vectors, quietly = TRUE)
+
+# Creamos los metadatos de grupo
+sample_names <- c("M1_1_MSS", "M1_2_MSS", "M5_1_MSS", "M5_2_MSS", "T49_1_MSS", "T49_2_MSS", 
+                  "M42_1_PD", "M42_2_PD", "M43_1_PD", "M43_2_PD", "M64_1_PD", "M64_2_PD")
+groups <- c("MSS", "MSS", "MSS", "MSS", "MSS", "MSS", "PD", "PD", "PD", "PD", "PD", "PD")
+metadata <- DataFrame(Sample = sample_names, Group = groups)
+```
+
+3. El tercer paso va a ser crear el objeto SummarizedExperiment
+
+Con los datos de abundancia y los metadatos (metadata) listos, ahora podemos crear el objeto SummarizedExperiment. Este paso combina la información de abundancia y los metadatos en un solo objeto; prepararemos un objeto estructurado que contenga:
+- Las abundancias de fosfopéptidos en formato de matriz.
+- Los metadatos de las muestras, especificando a qué grupo pertenece cada muestra.
+
+Convertimos las abundancias en matriz: Extraemos únicamente las columnas de abundancias (omitiendo SequenceModifications) para convertirlas en una matriz, ya que el objeto SummarizedExperiment requiere que las abundancias estén en formato de matriz.
+```{r}
+# Creamos una matriz solo con las columnas de abundancias (sin SequenceModifications)
+abundances_matrix <- as.matrix(data_abundances %>% select(-SequenceModifications))
+```
+
+Creamos el objeto SummarizedExperiment: Usamos la matriz de abundancias y el DataFrame de metadatos (metadata).
+```{r}
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+#BiocManager::install("SummarizedExperiment")
+
+library(SummarizedExperiment, quietly = TRUE)
+
+# Creamos el objeto SummarizedExperiment
+SE <- SummarizedExperiment(assays = list(counts = abundances_matrix), colData = metadata)
+
+# Guardamos el objeto para análisis posterior
+save(SE, file = "dataset_metabolomics.Rda")
+```
+
+# Resultados
+
+En este paso vamos a explorar si existen diferencias en la abundancia de fosfopéptidos (proteínas fosforiladas) entre los grupos MSS y PD. 
+
+Esto se hace mediante:
+- Boxplot: Nos permitirá ver si las distribuciones de abundancia son diferentes entre MSS y PD.
+- PCA: Nos ayudará a ver si las muestras de MSS y PD se agrupan de forma diferente, lo que podría indicar que tienen perfiles de fosforilación distintos.
+- Prueba t para comparar grupos MSS y PD: Para cada fosfopéptido, podemos realizar una prueba t para comparar las abundancias entre los grupos MSS y PD, que nos ayudará a identificar si existen fosfopéptidos con diferencias significativas entre los grupos.
+
+1. Boxplot de Abundancias de Fosfopéptidos
+
+Este gráfico muestra la distribución de abundancias de fosfopéptidos en cada grupo (MSS y PD). Nos permitirá ver si hay diferencias en la cantidad de fosforilación entre los grupos.
+```{r}
+library(ggplot2, quietly = TRUE)
+
+# Extraemos la matriz de abundancias del objeto SummarizedExperiment
+abundances_matrix_boxplot <- assay(SE, "counts")
+
+# Normalizamos logarítmicamente para reducir el rango de valores
+abundances_matrix_boxplot <- log2(abundances_matrix_boxplot + 1)
+
+# Convertimos la matriz en un dataframe y añadir los grupos
+plot_data <- as.data.frame(t(abundances_matrix_boxplot))  # Transponemos para tener una columna por fosfopéptido
+plot_data$Group <- colData(SE)$Group  # Añadir los grupos como columna
+
+library(tidyr, quietly = TRUE)
+
+# Convertimos abundances_matrix en formato largo
+plot_data_long <- plot_data %>%
+    pivot_longer(cols = starts_with("V"), names_to = "Fosfopeptido", values_to = "Abundancia")
+
+# Creamos el boxplot con múltiples fosfopéptidos
+ggplot(plot_data_long, aes(x = Group, y = Abundancia, fill = Group)) +
+    geom_boxplot() +
+    theme_minimal() +
+    labs(title = "Distribución de Abundancias Normalizadas de Fosfopéptidos por Grupo",
+         x = "Grupo",
+         y = "Abundancia de Fosfopéptidos (log2)") +
+    theme(legend.position = "none")
+
+```
+- Rango y Mediana: Podemos ver que ambos grupos tienen medianas similares en términos de abundancia. La mediana es la línea dentro de cada caja, que representa el valor medio de abundancia en cada grupo.
+- Variabilidad: Aunque la mediana es similar, el grupo "PD" parece tener una mayor variabilidad (o dispersión) en las abundancias de fosfopéptidos, como se puede ver en el rango intercuartílico (el tamaño de la caja) y en las líneas que se extienden hacia los valores atípicos (outliers).
+- Outliers: Ambos grupos presentan valores atípicos, pero el grupo "PD" parece tener una mayor cantidad de estos valores extremos, lo que indica que algunos fosfopéptidos en este grupo tienen abundancias significativamente diferentes de la mediana.
+
+Aunque la mediana de abundancia es similar entre los dos grupos, la mayor dispersión y la presencia de más valores atípicos en el grupo "PD" sugieren que hay variaciones en la abundancia de ciertos fosfopéptidos que podrían ser relevantes para la comparación entre ambos grupos.
+
+2. Análisis de Componentes Principales (PCA)
+
+El PCA nos ayuda a reducir la dimensionalidad de los datos, lo que facilita observar agrupamientos entre las muestras. Cada punto representa una muestra, y la separación entre MSS y PD sugiere diferencias en los perfiles de fosfopéptidos.
+```{r}
+# Filtramos filas con baja variación o constantes
+abundances_matrix_pca <- abundances_matrix[apply(abundances_matrix, 1, function(x) {
+    sd(x) > 1e-5  # Filtra filas con desviación estándar significativa (ajusta si es necesario)
+}), ]
+
+# Normalizamos logarítmicamente para reducir el rango de valores
+abundances_matrix_pca <- log2(abundances_matrix_pca + 1)
+
+# Realizamos el PCA en la matriz filtrada
+pca <- prcomp(t(abundances_matrix_pca), scale = TRUE)
+pca_data <- data.frame(pca$x, Group = colData(SE)$Group)
+
+# Graficamos el PCA
+library(ggplot2)
+ggplot(pca_data, aes(x = PC1, y = PC2, color = Group)) +
+    geom_point(size = 3) +
+    theme_minimal() +
+    labs(title = "PCA de las Abundancias de Fosfopéptidos",
+         x = "PC1",
+         y = "PC2")
+
+```
+- Agrupación: Las muestras de cada grupo (MSS y PD) parecen estar parcialmente separadas en el espacio de los componentes principales, con algunas muestras de "MSS" agrupadas hacia un extremo y algunas de "PD" en el otro. Sin embargo, hay solapamientos entre los dos grupos.
+- PC1 y PC2: PC1 es la componente principal que captura la mayor variabilidad en los datos, seguida de PC2. La separación a lo largo de PC1 o PC2 indica que hay diferencias en las abundancias de fosfopéptidos que varían entre ambos grupos, pero no es una separación completa, por lo que es posible que otros factores o fosfopéptidos específicos influyan en la variabilidad observada.
+
+Aunque los grupos no se separan completamente, la distribución sugiere que existen ciertas diferencias en la abundancia de fosfopéptidos que están asociadas con cada grupo. Esto apoya la idea de que las abundancias de algunos fosfopéptidos son diferenciales entre "MSS" y "PD".
+
+
+3. Test t para comparar grupos MSS y PD
+
+Para cada fosfopéptido, podemos realizar una prueba t para comparar las abundancias entre los grupos MSS y PD; esto nos ayudará a identificar si existen fosfopéptidos con diferencias significativas entre los grupos.
+
+```{r}
+# Extraemos y normalizamos la matriz de abundancias (si no está ya normalizada)
+abundances_matrix <- assay(SE, "counts")
+abundances_matrix <- log2(abundances_matrix + 1)
+
+library(tidyr, quietly = TRUE)
+library(dplyr, quietly = TRUE)
+
+# Creamos dataframe para realizar comparaciones
+long_data <- as.data.frame(t(abundances_matrix))  # Transponer para tener una columna por fosfopéptido
+long_data$Group <- colData(SE)$Group  # Añadir la información de grupo
+long_data <- pivot_longer(long_data, cols = starts_with("V"), names_to = "Fosfopeptido", values_to = "Abundancia")
+
+# Realizamos prueba t para cada fosfopéptido y obtener p-values
+results <- long_data %>%
+  group_by(Fosfopeptido) %>%
+  summarise(p_value = t.test(Abundancia ~ Group)$p.value)
+
+# Aplicamos corrección de p-values para múltiples pruebas (FDR)
+results <- results %>%
+  mutate(adj_p_value = p.adjust(p_value, method = "fdr"))
+
+# Filtramos fosfopéptidos significativos
+significant_results <- results %>% filter(adj_p_value < 0.05)
+
+# Ordenamos los resultados por adj_p_value de menor a mayor
+ordered_results <- significant_results %>% arrange(adj_p_value)
+
+# Mostramos fosfopéptidos con diferencias significativas entre MSS y PD ordenados
+print(ordered_results)
+
+```
+- P-Values: Cada p-value muestra la probabilidad de que las diferencias observadas en las abundancias entre MSS y PD sean debidas al azar. Los fosfopéptidos con valores p más bajos indican una mayor evidencia de diferencia significativa entre los grupos.
+- Adjusted P-Values (adj_p_value): Estos valores ajustados controlan el error de tipo I en pruebas múltiples, de modo que fosfopéptidos con valores ajustados más bajos son los que muestran diferencias estadísticamente significativas entre los grupos. En tu tabla, vemos fosfopéptidos con un adj_p_value muy bajo, lo cual indica que la abundancia de estos fosfopéptidos difiere significativamente entre los grupos.
+
+La lista de fosfopéptidos con valores p ajustados más bajos (como V811 o V1247) es especialmente importante porque estos son los fosfopéptidos cuya abundancia está más estrechamente asociada con la diferencia entre MSS y PD. Esto podría señalar que estos fosfopéptidos en particular tienen un papel relevante en las diferencias biológicas o de estado entre los dos grupos.
+
+
+# Discusión y limitaciones y conclusiones del estudio
+
+Este estudio revela diferencias importantes en los perfiles de fosforilación entre los grupos MSS y PD. Aunque ambos grupos presentan medianas de abundancia similares, el grupo PD muestra una mayor variabilidad en las abundancias de fosfopéptidos, lo que indica una posible heterogeneidad en sus vías de señalización. El análisis de componentes principales sugiere una tendencia de agrupación parcial entre las muestras de MSS y PD, reflejando diferencias en los perfiles de fosforilación que, aunque no suficientemente pronunciadas para separar completamente los grupos, sí indican variaciones relevantes en su regulación molecular. Además, la prueba t identificó un conjunto de fosfopéptidos con diferencias estadísticamente significativas entre los grupos, destacando algunos fosfopéptidos específicos cuya abundancia podría estar particularmente asociada con las características biológicas distintivas de cada grupo. En conjunto, estos hallazgos sugieren que los perfiles de fosforilación diferenciales entre MSS y PD podrían tener implicaciones para la comprensión de los mecanismos moleculares subyacentes y podrían servir de base para la identificación de posibles biomarcadores o dianas terapéuticas.
+
+Estos hallazgos abren la puerta a futuras investigaciones para:
+
+- Explorar en profundidad los mecanismos reguladores que podrían explicar la mayor variabilidad en PD.
+- Validar los fosfopéptidos diferenciales como posibles biomarcadores o dianas terapéuticas específicas para cada grupo.
+- Ampliar el análisis incluyendo otros enfoques ómicos o muestras adicionales para confirmar la robustez de estos resultados.
+- Este análisis contribuye al conocimiento sobre las diferencias moleculares entre MSS y PD, proporcionando una base sólida para futuras investigaciones en la caracterización de estos subtipos y su potencial relevancia clínica.
+
+# Repositorio
+
+El código y los datos utilizados en este análisis están disponibles en el siguiente repositorio de GitHub: https://github.com/esterpol/Pol-Ferrer-Ester-PEC1.git
